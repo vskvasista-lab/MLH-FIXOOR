@@ -1,16 +1,14 @@
 """app.py: Streamlit UI for FIXOOR: Error Screenshot & Endpoint Explainer.
 
 Design Implementation:
-- High-fidelity visual styling matching the reference mockup:
-    * Custom Plus Jakarta Sans typography with rich geometric weights
-    * Background wallpaper with icy mountains, floating 3D glass spheres, and ethereal blue ambient lighting
-    * Floating glassmorphic sidebar with rounded right edges and frosted backdrop blur
-    * FIXOOR branding with vibrant blue gradient typography
-    * Custom pill-tab switcher with glowing royal-blue active tab state
-    * Precision-styled drag-and-drop cloud upload zone with dashed border
-    * Polished empty-state vector illustration with document sheet and magnifying glass
-    * Full-width gradient action buttons with icon accents
-- Clean modular architecture:
+- Clean, minimalist SaaS light aesthetic:
+    * Crisp off-white canvas (#f8fafc) with distraction-free clean typography
+    * Clean solid white cards (#ffffff) with subtle border definition (#e2e8f0) and soft elevation
+    * Sidebar with clean white panel, FIXOOR branding, and API key status badge
+    * Pill-tab switcher with solid blue active tab and neutral inactive tab
+    * Precision dashed dropzone for screenshot uploading
+    * Centered vector illustration empty state for clear diagnostics preview
+- Modular architecture:
     * analyzer (Gemma 4 GenAI analysis, prompts, JSON schema recovery)
     * fetcher (secure HTTP request extraction & BeautifulSoup HTML cleaner)
     * imaging (Pillow image upscaling, luminance detection, contrast enhancement)
@@ -18,7 +16,6 @@ Design Implementation:
 - Safely guards st.secrets against StreamlitSecretNotFoundError.
 """
 
-import base64
 import importlib
 import os
 from PIL import Image
@@ -53,121 +50,89 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# Wallpaper Background Resolution (Base64 for instant zero-lag rendering)
-# ------------------------------------------------------------------------------
-bg_path = os.path.join(os.path.dirname(__file__), "assets", "background.jpg")
-bg_css_rule = ""
-if os.path.exists(bg_path):
-    try:
-        with open(bg_path, "rb") as f_bg:
-            bg_b64 = base64.b64encode(f_bg.read()).decode("utf-8")
-        bg_css_rule = f"""
-        background-image: url('data:image/jpeg;base64,{bg_b64}') !important;
-        background-repeat: no-repeat !important;
-        background-position: center bottom !important;
-        background-size: cover !important;
-        background-attachment: fixed !important;
-        """
-    except Exception:
-        bg_css_rule = """
-        background: radial-gradient(circle at 85% 15%, rgba(191, 219, 254, 0.45) 0%, transparent 45%),
-                    linear-gradient(180deg, #f8fbff 0%, #edf4fc 45%, #e1effc 100%) !important;
-        """
-else:
-    bg_css_rule = """
-    background: radial-gradient(circle at 85% 15%, rgba(191, 219, 254, 0.45) 0%, transparent 45%),
-                linear-gradient(180deg, #f8fbff 0%, #edf4fc 45%, #e1effc 100%) !important;
-    """
-
-# ------------------------------------------------------------------------------
-# High-Fidelity Custom CSS
+# Clean Minimalist SaaS Custom CSS
 # ------------------------------------------------------------------------------
 st.markdown(
-    f"""
+    """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
 
     /* Global Typography & Canvas */
-    html, body, [class*="css"] {{
+    html, body, [class*="css"] {
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }}
+    }
 
-    .stApp {{
-        {bg_css_rule}
-        color: #1e293b !important;
-    }}
+    .stApp {
+        background: #f8fafc !important;
+        color: #0f172a !important;
+    }
 
-    /* Make top Streamlit header bar transparent */
-    header[data-testid="stHeader"] {{
+    header[data-testid="stHeader"] {
         background: transparent !important;
-    }}
+    }
 
     /* Content Area Max Width & Spacing */
-    .block-container {{
+    .block-container {
         padding-top: 1.75rem !important;
         padding-bottom: 2.5rem !important;
         padding-left: 2.5rem !important;
         padding-right: 2.5rem !important;
         max-width: 1400px !important;
-    }}
+    }
 
-    /* Floating Rounded Glassmorphic Sidebar */
-    [data-testid="stSidebar"] {{
-        background: rgba(255, 255, 255, 0.88) !important;
-        backdrop-filter: blur(28px) !important;
-        -webkit-backdrop-filter: blur(28px) !important;
-        border-right: 1px solid rgba(226, 232, 240, 0.85) !important;
-        border-top-right-radius: 26px !important;
-        border-bottom-right-radius: 26px !important;
-        box-shadow: 6px 0 32px rgba(148, 163, 184, 0.12) !important;
-    }}
+    /* Clean White Sidebar */
+    [data-testid="stSidebar"] {
+        background: #ffffff !important;
+        border-right: 1px solid #e2e8f0 !important;
+        box-shadow: 2px 0 16px rgba(15, 23, 42, 0.04) !important;
+    }
 
-    [data-testid="stSidebar"] > div:first-child {{
+    [data-testid="stSidebar"] > div:first-child {
         padding-top: 1.25rem !important;
         padding-left: 1.25rem !important;
         padding-right: 1.25rem !important;
-    }}
+    }
 
     /* Brand Header in Sidebar */
-    .brand-container {{
+    .brand-container {
         display: flex;
         align-items: center;
         gap: 12px;
         padding: 4px 0 16px 0;
-        border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+        border-bottom: 1px solid #e2e8f0;
         margin-bottom: 16px;
-    }}
+    }
 
-    .brand-icon-box {{
+    .brand-icon-box {
         width: 44px;
         height: 44px;
-        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+        background: #eff6ff;
         border: 1px solid #bfdbfe;
         border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
-    }}
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+    }
 
-    .brand-title {{
+    .brand-title {
         font-size: 20px;
         font-weight: 800;
         letter-spacing: -0.02em;
         color: #0f172a;
         line-height: 1.15;
-    }}
+    }
 
-    .brand-tagline {{
+    .brand-tagline {
         font-size: 11px;
         font-weight: 500;
         color: #64748b;
         letter-spacing: 0.02em;
         margin-top: 2px;
-    }}
+    }
 
     /* Status Pill */
-    .status-pill {{
+    .status-pill {
         display: flex;
         align-items: center;
         gap: 8px;
@@ -179,9 +144,9 @@ st.markdown(
         font-size: 11.5px;
         font-weight: 600;
         margin-bottom: 14px;
-    }}
+    }
 
-    .status-pill-icon {{
+    .status-pill-icon {
         background: #10b981;
         color: white;
         border-radius: 4px;
@@ -192,10 +157,10 @@ st.markdown(
         justify-content: center;
         font-size: 11px;
         font-weight: bold;
-    }}
+    }
 
     /* Sidebar Section Titles */
-    .sidebar-heading {{
+    .sidebar-heading {
         font-size: 14px;
         font-weight: 700;
         color: #1e293b;
@@ -204,17 +169,17 @@ st.markdown(
         gap: 8px;
         margin-top: 14px;
         margin-bottom: 10px;
-    }}
+    }
 
     /* Hero Section */
-    .ai-badge-wrap {{
+    .ai-badge-wrap {
         display: flex;
         align-items: center;
         gap: 8px;
         margin-bottom: 6px;
-    }}
+    }
 
-    .ai-badge {{
+    .ai-badge {
         color: #2563eb;
         font-weight: 800;
         font-size: 11px;
@@ -223,129 +188,128 @@ st.markdown(
         display: inline-flex;
         align-items: center;
         gap: 5px;
-    }}
+    }
 
-    .ai-badge-line {{
+    .ai-badge-line {
         width: 44px;
         height: 1.5px;
         background: #93c5fd;
         border-radius: 2px;
-    }}
+    }
 
-    .hero-title {{
-        font-size: 52px;
+    .hero-title {
+        font-size: 50px;
         font-weight: 900;
         letter-spacing: -0.03em;
         color: #0f172a;
         margin: 0;
         line-height: 1.05;
-    }}
+    }
 
-    .hero-title-gradient {{
+    .hero-title-gradient {
         background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 45%, #60a5fa 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-    }}
+    }
 
-    .hero-subtitle {{
-        font-size: 23px;
+    .hero-subtitle {
+        font-size: 22px;
         font-weight: 800;
         color: #0f172a;
         margin-top: 6px;
         margin-bottom: 10px;
         letter-spacing: -0.02em;
-    }}
+    }
 
-    .hero-description {{
+    .hero-description {
         font-size: 14px;
         color: #475569;
         max-width: 820px;
         line-height: 1.6;
         margin-bottom: 22px;
-    }}
+    }
 
     /* Pill Tabs Styling */
-    div[data-baseweb="tab-list"] {{
+    div[data-baseweb="tab-list"] {
         background: transparent !important;
         border-bottom: none !important;
         gap: 12px !important;
         padding: 0 0 16px 0 !important;
-    }}
+    }
 
-    div[data-baseweb="tab-border"] {{
+    div[data-baseweb="tab-border"] {
         display: none !important;
-    }}
+    }
 
-    button[data-baseweb="tab"] {{
-        background: rgba(255, 255, 255, 0.75) !important;
-        border: 1px solid rgba(203, 213, 225, 0.85) !important;
+    button[data-baseweb="tab"] {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 12px !important;
         padding: 9px 20px !important;
         font-size: 13.5px !important;
         font-weight: 600 !important;
         color: #475569 !important;
-        box-shadow: 0 2px 6px rgba(148, 163, 184, 0.05) !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
         transition: all 0.2s ease !important;
-    }}
+    }
 
-    button[data-baseweb="tab"]:hover {{
-        background: #ffffff !important;
+    button[data-baseweb="tab"]:hover {
+        background: #f8fafc !important;
         color: #0f172a !important;
         border-color: #94a3b8 !important;
-    }}
+    }
 
-    button[data-baseweb="tab"][aria-selected="true"] {{
+    button[data-baseweb="tab"][aria-selected="true"] {
         background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%) !important;
         border: 1px solid #2563eb !important;
         color: #ffffff !important;
-        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4) !important;
-    }}
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3) !important;
+    }
 
-    /* Container Border Glass Cards */
-    div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background: rgba(255, 255, 255, 0.90) !important;
-        backdrop-filter: blur(24px) !important;
-        -webkit-backdrop-filter: blur(24px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.95) !important;
-        border-radius: 22px !important;
-        box-shadow: 0 12px 36px rgba(148, 163, 184, 0.12) !important;
+    /* Clean White Cards */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 18px !important;
+        box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05) !important;
         padding: 24px !important;
         min-height: 470px !important;
-    }}
+    }
 
-    div[data-testid="stVerticalBlockBorderWrapper"] > div {{
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {
         border: none !important;
-    }}
+    }
 
     /* Card Headers */
-    .card-header {{
+    .card-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         margin-bottom: 4px;
-    }}
+    }
 
-    .card-title {{
+    .card-title {
         font-size: 17px;
         font-weight: 700;
         color: #0f172a;
         display: flex;
         align-items: center;
         gap: 8px;
-    }}
+    }
 
-    .card-icon-badge {{
+    .card-icon-badge {
         width: 32px;
         height: 32px;
-        background: #e0edff;
+        background: #eff6ff;
+        border: 1px solid #dbeafe;
         border-radius: 8px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         font-size: 16px;
-    }}
+    }
 
-    .help-circle {{
+    .help-circle {
         width: 18px;
         height: 18px;
         border-radius: 50%;
@@ -357,23 +321,23 @@ st.markdown(
         font-size: 11px;
         font-weight: 700;
         cursor: pointer;
-    }}
+    }
 
-    .card-subtitle {{
+    .card-subtitle {
         font-size: 12.5px;
         color: #64748b;
         margin-top: 4px;
         margin-bottom: 12px;
-    }}
+    }
 
-    /* Custom File Uploader Dropzone matching exact mockup */
-    [data-testid="stFileUploader"] {{
+    /* Custom File Uploader Dropzone */
+    [data-testid="stFileUploader"] {
         margin-top: 4px;
         margin-bottom: 12px;
-    }}
+    }
 
-    [data-testid="stFileUploadDropzone"] {{
-        background: rgba(248, 251, 255, 0.75) !important;
+    [data-testid="stFileUploadDropzone"] {
+        background: #f8fafc !important;
         border: 2px dashed #93c5fd !important;
         border-radius: 16px !important;
         padding: 24px 16px !important;
@@ -383,61 +347,61 @@ st.markdown(
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
-    }}
+    }
 
-    [data-testid="stFileUploadDropzone"]:hover {{
-        background: rgba(239, 246, 255, 0.95) !important;
+    [data-testid="stFileUploadDropzone"]:hover {
+        background: #eff6ff !important;
         border-color: #3b82f6 !important;
-    }}
+    }
 
-    /* Hide the default browse button to display a clean unified dropzone */
-    [data-testid="stFileUploadDropzone"] button {{
+    /* Hide the default browse button for a unified drop area */
+    [data-testid="stFileUploadDropzone"] button {
         display: none !important;
-    }}
+    }
 
     /* Style the cloud upload icon */
-    [data-testid="stFileUploadDropzone"] svg {{
+    [data-testid="stFileUploadDropzone"] svg {
         width: 36px !important;
         height: 36px !important;
         color: #2563eb !important;
         fill: #2563eb !important;
         margin-bottom: 6px !important;
-    }}
+    }
 
     /* Text replacements for upload prompt */
-    [data-testid="stFileUploadDropzone"] span {{
+    [data-testid="stFileUploadDropzone"] span {
         font-size: 0px !important;
-    }}
-    [data-testid="stFileUploadDropzone"] span::before {{
+    }
+    [data-testid="stFileUploadDropzone"] span::before {
         content: "Click to upload or drag and drop" !important;
         font-size: 13.5px !important;
         font-weight: 600 !important;
         color: #0f172a !important;
         display: block !important;
-    }}
+    }
 
-    [data-testid="stFileUploadDropzone"] small {{
+    [data-testid="stFileUploadDropzone"] small {
         font-size: 0px !important;
-    }}
-    [data-testid="stFileUploadDropzone"] small::before {{
+    }
+    [data-testid="stFileUploadDropzone"] small::before {
         content: "PNG or JPG • Max 200MB" !important;
         font-size: 11px !important;
         color: #94a3b8 !important;
         display: block !important;
         margin-top: 3px !important;
-    }}
+    }
 
     /* Uploaded File Pill */
-    [data-testid="stFileUploaderFile"] {{
+    [data-testid="stFileUploaderFile"] {
         background: #ffffff !important;
         border: 1px solid #bfdbfe !important;
         border-radius: 12px !important;
         padding: 10px 14px !important;
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08) !important;
-    }}
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05) !important;
+    }
 
     /* Notice Bars */
-    .notice-bar {{
+    .notice-bar {
         background: #eff6ff;
         border: 1px solid #bfdbfe;
         color: #2563eb;
@@ -449,9 +413,9 @@ st.markdown(
         display: flex;
         align-items: center;
         gap: 8px;
-    }}
+    }
 
-    .notice-bar-gray {{
+    .notice-bar-gray {
         font-size: 12.5px;
         color: #64748b;
         margin-top: 4px;
@@ -459,10 +423,10 @@ st.markdown(
         display: flex;
         align-items: center;
         gap: 6px;
-    }}
+    }
 
     /* Primary Action Buttons */
-    div.stButton > button[kind="primary"] {{
+    div.stButton > button[kind="primary"] {
         background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%) !important;
         color: #ffffff !important;
         border: none !important;
@@ -470,50 +434,50 @@ st.markdown(
         font-size: 14.5px !important;
         font-weight: 600 !important;
         height: 48px !important;
-        box-shadow: 0 4px 18px rgba(37, 99, 235, 0.35) !important;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25) !important;
         transition: all 0.2s ease !important;
-    }}
+    }
 
-    div.stButton > button[kind="primary"]:hover {{
+    div.stButton > button[kind="primary"]:hover {
         background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%) !important;
-        box-shadow: 0 6px 22px rgba(37, 99, 235, 0.45) !important;
+        box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35) !important;
         transform: translateY(-1px) !important;
-    }}
+    }
 
     /* Clean Input Fields */
-    input[type="text"], input[type="password"] {{
+    input[type="text"], input[type="password"] {
         border-radius: 10px !important;
         border: 1px solid #cbd5e1 !important;
         font-size: 13px !important;
         background: #ffffff !important;
-    }}
+    }
 
     /* Empty State Right Card */
-    .empty-state-box {{
+    .empty-state-box {
         text-align: center;
         padding: 24px 16px 16px 16px;
-    }}
+    }
 
-    .empty-state-illustration {{
-        width: 140px;
-        height: 105px;
+    .empty-state-illustration {
+        width: 130px;
+        height: 100px;
         margin: 0 auto 16px auto;
         display: flex;
         align-items: center;
         justify-content: center;
-    }}
+    }
 
-    .empty-state-title {{
+    .empty-state-title {
         font-size: 16.5px;
         font-weight: 700;
         color: #0f172a;
         margin-bottom: 6px;
-    }}
+    }
 
-    .empty-state-subtitle {{
+    .empty-state-subtitle {
         font-size: 13px;
         color: #64748b;
-    }}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -578,7 +542,7 @@ if "active_diagnosis_type" not in st.session_state:
 
 
 # ==============================================================================
-# SIDEBAR: Custom High-Fidelity Panel
+# SIDEBAR: Clean Minimalist SaaS Panel
 # ==============================================================================
 with st.sidebar:
     # 1. FIXOOR Brand Header
@@ -966,7 +930,7 @@ with col_right:
                             st.error(f"❌ Unexpected error: `{str(ex)}`. Please check your API key and connection.")
 
         # ----------------------------------------------------------------------
-        # Render Results or Empty State Illustration
+        # Render Results or Clean Vector Empty State
         # ----------------------------------------------------------------------
         analysis = st.session_state["active_analysis"]
         raw_output = st.session_state["active_raw_text"]
@@ -1031,7 +995,7 @@ with col_right:
             st.markdown(raw_output)
 
         else:
-            # High-Precision Empty State Illustration matching mockup
+            # Clean Vector Empty State
             st.markdown(
                 """
                 <div class="empty-state-box">
