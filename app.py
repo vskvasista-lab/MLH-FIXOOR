@@ -1,15 +1,13 @@
-"""app.py: Streamlit UI for Error Screenshot Explainer (Stage 1).
+"""app.py: Streamlit UI for Error Screenshot & URL Endpoint Explainer.
 
 Design Notes:
-- Acts strictly as the view and controller layer. No direct image manipulation
-  or GenAI API calls reside in this file.
-- Preserves the established two-column layout: inputs & image preview on the left,
-  diagnostic results & actionable fixes on the right.
-- Secret resolution checks st.secrets safely inside a try-except block to prevent
-  StreamlitSecretNotFoundError when no secrets.toml is configured, falling back
-  to environment variables and .env.
-- Commands and code snippets are explicitly rendered using st.code to provide
-  native, one-click clipboard copying.
+- Acts strictly as the view and controller layer.
+- Modular tabs on the left column:
+    * Tab 1: 📷 Screenshot Upload (Pillow preprocessing, luminance detection, dark theme boost)
+    * Tab 2: 🔗 Error Page URL (Local dev server vs. Public web endpoint fetching via requests & BeautifulSoup)
+- Displays an HTTP Status preview box and response snippet before AI analysis is executed.
+- Structured JSON output rendered as clean cards with severity badges and copyable code blocks via st.code.
+- Safely guards secret resolution inside try-except to prevent StreamlitSecretNotFoundError.
 """
 
 import os
@@ -20,7 +18,9 @@ from google.genai import errors
 from analyzer import (
     DEFAULT_MODEL_NAME,
     analyze_screenshot,
+    analyze_url_error,
 )
+from fetcher import FetchError, fetch_error_from_url
 from imaging import preprocess_image
 
 # ------------------------------------------------------------------------------
@@ -35,9 +35,8 @@ st.set_page_config(
 
 # ------------------------------------------------------------------------------
 # API Key Resolution
-# Design Note: Prioritize st.secrets (Streamlit Cloud / local secrets.toml) safely,
-# then local .env / environment variables, then fallback to user input.
-# Guard against StreamlitSecretNotFoundError when secrets.toml does not exist.
+# Design Note: Prioritize st.secrets safely with a try-except block to handle cases
+# where no secrets.toml is present, then check environment variables & .env.
 # ------------------------------------------------------------------------------
 env_file = os.path.join(os.path.dirname(__file__), ".env")
 if os.path.exists(env_file):
@@ -57,7 +56,6 @@ try:
     if "GEMINI_API_KEY" in st.secrets:
         resolved_key = str(st.secrets["GEMINI_API_KEY"]).strip()
 except Exception:
-    # StreamlitSecretNotFoundError occurs when no secrets.toml exists
     pass
 
 if not resolved_key and os.environ.get("GEMINI_API_KEY"):
@@ -88,6 +86,12 @@ if "active_prep_info" not in st.session_state:
 if "last_uploaded_name" not in st.session_state:
     st.session_state["last_uploaded_name"] = None
 
+if "url_preview_data" not in st.session_state:
+    st.session_state["url_preview_data"] = None
+
+if "active_diagnosis_type" not in st.session_state:
+    st.session_state["active_diagnosis_type"] = "screenshot"
+
 
 # ==============================================================================
 # SIDEBAR: Configuration & Controls
@@ -112,7 +116,7 @@ else:
 model_name = st.sidebar.text_input(
     "Gemma 4 Model Name:",
     value=DEFAULT_MODEL_NAME,
-    help="Default model identifier: gemma-4-26b-a4b-it",
+    help="Default recommended model: gemma-4-26b-a4b-it",
 ).strip()
 
 st.sidebar.markdown("---")
@@ -123,7 +127,7 @@ explanation_level = st.sidebar.radio(
     "Choose Level:",
     options=["Beginner", "Intermediate", "Expert"],
     index=0,
-    help="Beginner uses intuitive analogies; Expert provides low-level runtime insights.",
+    help="Beginner uses intuitive analogies; Expert provides low-level server/runtime diagnostics.",
 )
 
 # 4. Multi-Language Selector
@@ -155,99 +159,163 @@ invert_toggle = st.sidebar.checkbox(
 # ==============================================================================
 # MAIN PAGE: Two-Column Layout
 # ==============================================================================
-st.title("🛠️ Error Screenshot Explainer")
+st.title("🛠️ Error Screenshot & Endpoint Explainer")
 st.markdown(
-    "Upload a screenshot of your terminal error, exception, or stack trace. "
-    "Multimodal **Gemma 4** will analyze the problem and provide a structured, beginner-friendly fix."
+    "Upload a screenshot of your terminal error/traceback **OR** fetch an HTTP error page/API endpoint directly. "
+    "**Gemma 4** will analyze the problem, diagnose root causes, and provide exact, copyable fix commands."
 )
 
 col_left, col_right = st.columns([1, 1], gap="large")
 
 # ------------------------------------------------------------------------------
-# LEFT COLUMN: Upload, Previews, & Controls
+# LEFT COLUMN: Tabs for Screenshot Upload and URL Diagnosis
 # ------------------------------------------------------------------------------
 with col_left:
-    st.subheader("📷 Screenshot Input")
+    tab_screenshot, tab_url = st.tabs(["📷 Screenshot Upload", "🔗 Error Page URL"])
 
-    uploaded_file = st.file_uploader(
-        "Upload an error screenshot (PNG or JPG):",
-        type=["png", "jpg", "jpeg"],
-        help="Upload an image displaying the terminal output, compiler error, or traceback.",
-    )
+    # --------------------------------------------------------------------------
+    # TAB 1: SCREENSHOT UPLOAD
+    # --------------------------------------------------------------------------
+    with tab_screenshot:
+        st.subheader("📷 Upload Error Screenshot")
 
-    # Detect file change and trigger preprocessing
-    if uploaded_file is not None and uploaded_file.name != st.session_state["last_uploaded_name"]:
-        st.session_state["last_uploaded_name"] = uploaded_file.name
-        try:
-            raw_img = Image.open(uploaded_file)
-            st.session_state["active_image"] = raw_img
-            proc_img, p_info = preprocess_image(
-                raw_img,
-                enhance=enhance_toggle,
-                invert_dark=invert_toggle,
-            )
-            st.session_state["active_processed_image"] = proc_img
-            st.session_state["active_prep_info"] = p_info
-            st.session_state["active_analysis"] = None
-            st.session_state["active_raw_text"] = None
-        except Exception as img_err:
-            st.error(f"Failed to read image file: {img_err}")
-            st.session_state["active_image"] = None
-
-    # Render image preview if available
-    if st.session_state["active_image"] is not None:
-        st.image(
-            st.session_state["active_image"],
-            caption="Uploaded Screenshot (Original)",
-            use_container_width=True,
+        uploaded_file = st.file_uploader(
+            "Upload an error screenshot (PNG or JPG):",
+            type=["png", "jpg", "jpeg"],
+            help="Upload an image displaying terminal output, stack trace, or compiler error.",
+            key="screenshot_uploader",
         )
 
-        # Show processed preview expander
-        if st.session_state["active_processed_image"] is not None:
-            p_info = st.session_state.get("active_prep_info") or {}
-            expander_title = "🔍 Enhanced Screenshot Preview"
-            if p_info.get("is_dark"):
-                expander_title += " (Dark Theme Detected 🌙)"
-            if p_info.get("upscaled"):
-                expander_title += " (Auto-Upscaled 🚀)"
-
-            with st.expander(expander_title, expanded=False):
-                st.image(
-                    st.session_state["active_processed_image"],
-                    caption=(
-                        f"Processed View (Avg Luminance: {p_info.get('avg_luminance', 'N/A')}, "
-                        f"Size: {st.session_state['active_processed_image'].size})"
-                    ),
-                    use_container_width=True,
+        # Detect new file upload and trigger preprocessing
+        if uploaded_file is not None and uploaded_file.name != st.session_state["last_uploaded_name"]:
+            st.session_state["last_uploaded_name"] = uploaded_file.name
+            try:
+                raw_img = Image.open(uploaded_file)
+                st.session_state["active_image"] = raw_img
+                proc_img, p_info = preprocess_image(
+                    raw_img,
+                    enhance=enhance_toggle,
+                    invert_dark=invert_toggle,
                 )
-                if p_info.get("upscaled"):
-                    st.caption(
-                        f"ℹ️ Upscaled from {p_info.get('original_size')} to {p_info.get('new_size')} "
-                        "for crisp character recognition."
-                    )
-                if p_info.get("is_dark"):
-                    st.caption("ℹ️ Dark theme detected: contrast and sharpness enhanced.")
-    else:
-        st.info("👆 Please upload an error screenshot above to get started.")
+                st.session_state["active_processed_image"] = proc_img
+                st.session_state["active_prep_info"] = p_info
+                st.session_state["active_analysis"] = None
+                st.session_state["active_raw_text"] = None
+                st.session_state["url_preview_data"] = None
+                st.session_state["active_diagnosis_type"] = "screenshot"
+            except Exception as img_err:
+                st.error(f"Failed to read image file: {img_err}")
+                st.session_state["active_image"] = None
 
-    # Action Button
-    explain_btn = st.button("🚀 Explain this error", type="primary", use_container_width=True)
+        # Render preview if image loaded
+        if st.session_state["active_image"] is not None:
+            st.image(
+                st.session_state["active_image"],
+                caption="Uploaded Screenshot (Original)",
+                use_container_width=True,
+            )
+
+            # Enhanced preview expander
+            if st.session_state["active_processed_image"] is not None:
+                p_info = st.session_state.get("active_prep_info") or {}
+                expander_title = "🔍 Enhanced Screenshot Preview"
+                if p_info.get("is_dark"):
+                    expander_title += " (Dark Theme Detected 🌙)"
+                if p_info.get("upscaled"):
+                    expander_title += " (Auto-Upscaled 🚀)"
+
+                with st.expander(expander_title, expanded=False):
+                    st.image(
+                        st.session_state["active_processed_image"],
+                        caption=(
+                            f"Processed View (Avg Luminance: {p_info.get('avg_luminance', 'N/A')}, "
+                            f"Size: {st.session_state['active_processed_image'].size})"
+                        ),
+                        use_container_width=True,
+                    )
+                    if p_info.get("upscaled"):
+                        st.caption(
+                            f"ℹ️ Upscaled from {p_info.get('original_size')} to {p_info.get('new_size')} "
+                            "for crisp character recognition."
+                        )
+                    if p_info.get("is_dark"):
+                        st.caption("ℹ️ Dark theme detected: contrast and sharpness enhanced.")
+        else:
+            st.info("👆 Upload an error screenshot above to begin.")
+
+        explain_screenshot_btn = st.button(
+            "🚀 Explain Screenshot Error",
+            type="primary",
+            use_container_width=True,
+            key="btn_explain_screenshot",
+        )
+
+    # --------------------------------------------------------------------------
+    # TAB 2: ERROR PAGE URL
+    # --------------------------------------------------------------------------
+    with tab_url:
+        st.subheader("🔗 Diagnose Error from URL")
+        st.caption("Inspect live HTTP error responses (e.g. 500, 502, 404, 403, CORS) from web endpoints.")
+
+        target_url = st.text_input(
+            "Target Endpoint URL:",
+            placeholder="https://example.com/api/test or http://localhost:3000/error",
+            help="Enter the URL returning the error page or broken API response.",
+            key="target_url_input",
+        )
+
+        url_environment = st.radio(
+            "Endpoint Type:",
+            options=["Local / Development URL", "Public Web URL"],
+            index=0,
+            horizontal=True,
+            help="Select 'Local / Development URL' when testing localhost or local microservices.",
+        )
+        is_local = url_environment == "Local / Development URL"
+
+        fetch_and_diagnose_btn = st.button(
+            "🌐 Fetch & Diagnose URL",
+            type="primary",
+            use_container_width=True,
+            key="btn_fetch_url",
+        )
+
+        # Show existing URL preview box if present
+        if st.session_state["url_preview_data"] is not None:
+            preview = st.session_state["url_preview_data"]
+            st.markdown("---")
+            st.markdown("### 📋 Fetched Response Preview")
+
+            status_code = preview["status_code"]
+            status_color = "🔴" if status_code >= 500 else ("🟡" if status_code >= 400 else "🟢")
+            st.markdown(f"**Status:** {status_color} `HTTP {status_code} {preview['status_text']}`")
+            st.caption(f"**URL:** `{preview['url']}`")
+
+            with st.expander("📄 Extracted Visible Body Text", expanded=True):
+                st.code(preview["raw_preview"], language="text")
+
+            if preview.get("headers"):
+                with st.expander("🔍 Key Response Headers", expanded=False):
+                    for h_name, h_val in preview["headers"].items():
+                        st.markdown(f"- **`{h_name}`:** `{h_val}`")
 
 
 # ------------------------------------------------------------------------------
-# RIGHT COLUMN: Structured Results
+# RIGHT COLUMN: Structured Diagnostic Results & Actionable Fixes
 # ------------------------------------------------------------------------------
 with col_right:
     st.subheader("💡 Diagnostic & Fix")
 
-    # Handle Analysis Execution
-    if explain_btn:
+    # 1. Handle Screenshot Explanation Trigger
+    if explain_screenshot_btn:
         if st.session_state["active_image"] is None:
-            st.warning("⚠️ Please upload an error screenshot before requesting an explanation.")
+            st.warning("⚠️ Please upload an error screenshot first.")
         elif not api_key:
             st.error("⚠️ Missing API Key! Please enter your Gemini API Key in the sidebar or `.env` file.")
         else:
-            with st.spinner(f"Analyzing error with {model_name} ({explanation_level} level, {language})..."):
+            st.session_state["active_diagnosis_type"] = "screenshot"
+            st.session_state["url_preview_data"] = None
+            with st.spinner(f"Analyzing screenshot with {model_name} ({explanation_level} level, {language})..."):
                 try:
                     img_to_send = st.session_state["active_processed_image"] or st.session_state["active_image"]
                     parsed, raw_text, warning = analyze_screenshot(
@@ -257,7 +325,6 @@ with col_right:
                         explanation_level=explanation_level,
                         language=language,
                     )
-
                     if warning:
                         st.info(f"ℹ️ {warning}")
 
@@ -275,6 +342,65 @@ with col_right:
                     st.error(f"❌ Gemini API Error ({a_err.code}): {a_err.message}")
                 except Exception as ex:
                     st.error(f"❌ Unexpected error: `{str(ex)}`. Please check your API key and connection.")
+
+    # 2. Handle URL Fetch & Diagnose Trigger
+    if fetch_and_diagnose_btn:
+        if not target_url or not target_url.strip():
+            st.warning("⚠️ Please enter a target URL to diagnose.")
+        elif not api_key:
+            st.error("⚠️ Missing API Key! Please enter your Gemini API Key in the sidebar or `.env` file.")
+        else:
+            st.session_state["active_diagnosis_type"] = "url"
+            fetch_data = None
+
+            # Phase 1: Fetch endpoint with requests & BeautifulSoup
+            with st.spinner(f"Connecting to `{target_url}` and extracting response..."):
+                try:
+                    fetch_data = fetch_error_from_url(
+                        url=target_url,
+                        is_local=is_local,
+                        timeout=10,
+                    )
+                    st.session_state["url_preview_data"] = fetch_data
+                except FetchError as f_err:
+                    st.error(str(f_err))
+                    st.session_state["url_preview_data"] = None
+                except Exception as gen_err:
+                    st.error(f"❌ Unexpected error while fetching URL: {gen_err}")
+                    st.session_state["url_preview_data"] = None
+
+            # Phase 2: Run AI Analysis on extracted content
+            if fetch_data is not None:
+                with st.spinner(f"Diagnosing endpoint with {model_name} ({explanation_level} level, {language})..."):
+                    try:
+                        parsed, raw_text, warning = analyze_url_error(
+                            url=fetch_data["url"],
+                            status_code=fetch_data["status_code"],
+                            status_text=fetch_data["status_text"],
+                            headers=fetch_data["headers"],
+                            extracted_text=fetch_data["extracted_text"],
+                            api_key=api_key,
+                            model_name=model_name,
+                            explanation_level=explanation_level,
+                            language=language,
+                        )
+                        if warning:
+                            st.info(f"ℹ️ {warning}")
+
+                        st.session_state["active_analysis"] = parsed
+                        st.session_state["active_raw_text"] = raw_text
+
+                    except errors.ClientError as c_err:
+                        if c_err.code == 429:
+                            st.error("⏳ Rate limit exceeded. Please wait a few moments before trying again.")
+                        else:
+                            st.error(f"❌ API Client Error ({c_err.code}): {c_err.message}")
+                    except errors.ServerError as s_err:
+                        st.error(f"❌ Server Error ({s_err.code}): Google endpoint busy. Please retry shortly.")
+                    except errors.APIError as a_err:
+                        st.error(f"❌ Gemini API Error ({a_err.code}): {a_err.message}")
+                    except Exception as ex:
+                        st.error(f"❌ Unexpected error: `{str(ex)}`. Please check your API key and connection.")
 
     # --------------------------------------------------------------------------
     # Render Diagnostic Breakdown
@@ -316,7 +442,7 @@ with col_right:
         # 4. Numbered Fix Steps with One-Click Copyable Code
         fix_steps = analysis.get("fix_steps", [])
         if fix_steps:
-            st.markdown("#### 🛠️ Numbered Steps to Fix")
+            st.markdown("#### 🛠️ Numbered Steps to Fix & Debug")
             for idx, step in enumerate(fix_steps, 1):
                 st.markdown(f"**Step {idx}: {step.get('title', 'Action')}**")
                 if step.get("explanation"):
@@ -328,11 +454,12 @@ with col_right:
                     lang = "python" if any(k in cmd for k in ["def ", "import ", "print(", "class ", " = "]) else "bash"
                     st.code(cmd.strip(), language=lang)
 
-        # 5. Corrected Code
+        # 5. Corrected Code / Configuration
         corrected = analysis.get("corrected_code")
         if corrected and corrected.strip():
-            st.markdown("#### 📋 Corrected Code")
-            st.code(corrected.strip(), language="python")
+            st.markdown("#### 📋 Corrected Code / Configuration")
+            # Nginx / Python / JSON config display
+            st.code(corrected.strip(), language="nginx" if "nginx" in corrected.lower() else "python")
 
         # 6. Prevention Tip
         if analysis.get("prevention_tip"):
@@ -345,4 +472,4 @@ with col_right:
         st.markdown(raw_output)
 
     else:
-        st.caption("👈 Upload a screenshot on the left and click **'Explain this error'** to see the diagnosis.")
+        st.caption("👈 Upload a screenshot or enter an Error Page URL on the left and click **Diagnose** to view the report.")
