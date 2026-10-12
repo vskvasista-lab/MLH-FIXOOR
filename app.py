@@ -2,6 +2,8 @@
 
 Design Notes:
 - Acts strictly as the view and controller layer.
+- Uses importlib.reload on custom local modules (analyzer, fetcher, imaging) so Streamlit's
+  long-running process never caches stale modules when functions are added or updated.
 - Modular tabs on the left column:
     * Tab 1: 📷 Screenshot Upload (Pillow preprocessing, luminance detection, dark theme boost)
     * Tab 2: 🔗 Error Page URL (Local dev server vs. Public web endpoint fetching via requests & BeautifulSoup)
@@ -10,10 +12,22 @@ Design Notes:
 - Safely guards secret resolution inside try-except to prevent StreamlitSecretNotFoundError.
 """
 
+import importlib
 import os
 from PIL import Image
 import streamlit as st
 from google.genai import errors
+
+# Design Note: In Streamlit hot-reloading, submodules are not automatically reloaded
+# by Python's import system. Explicitly reloading ensures newly added functions
+# (such as analyze_url_error) are immediately bound without needing a manual server restart.
+import analyzer
+import fetcher
+import imaging
+
+importlib.reload(analyzer)
+importlib.reload(fetcher)
+importlib.reload(imaging)
 
 from analyzer import (
     DEFAULT_MODEL_NAME,
